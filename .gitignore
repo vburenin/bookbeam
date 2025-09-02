@@ -1,0 +1,9 @@
+.env.bookbeam
+.env
+.DS_Store
+.idea/
+.vscode/
+*~
+server/bookbeam-server
+server/audiobook-server
+server/server

@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+  <link rel="icon" href="static/favicon.ico" sizes="any">
+  <title>Audiobook Player (Car Mode)</title>
+  <style>
+    :root {
+      --bg-color: #121212;
+      --text-color: #e0e0e0;
+      --accent-color: #64b5f6;
+      --listened-color: #757575;
+      --button-bg: #424242;
+      --button-text: #ffffff;
+      --selected-speed-bg: #1976d2;
+      --playing-highlight-bg: #333;
+      --button-size: 50px; /* Larger base button size */
+      --button-padding: 15px; /* Generous padding */
+      --font-size-large: 1.8rem;
+      --font-size-medium: 1.5rem;
+      --font-size-small: 1.2rem;
+      /* Progress slider sizing */
+      --progress-track-h: 15px;      /* visual bar height */
+      --progress-thumb-size: 28px;   /* larger, easier to drag */
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overscroll-behavior: contain; /* Prevent pull-to-refresh */
+    }
+    html { height: -webkit-fill-available; -webkit-text-size-adjust: 100%; }
+    * { box-sizing: border-box; }
+    * { box-sizing: border-box; }
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: Arial, sans-serif;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr); /* Ensure list can shrink and scroll */
+      height: 100vh; /* Fallback */
+      height: 100svh; /* Stable viewport for iOS */
+      height: 100dvh; /* Dynamic viewport for modern browsers */
+      height: calc(var(--vh, 1vh) * 100); /* JS-updated real viewport height */
+      min-height: -webkit-fill-available;
+      overflow: hidden; /* Prevent body scrolling */
+      font-size: 16px; /* Base font size */
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+#header {
+      padding: 15px;
+      border-bottom: 1px solid var(--button-bg);
+      /* Removed flex properties that might constrain height */
+      padding-left: calc(15px + env(safe-area-inset-left, 0px));
+      padding-right: calc(15px + env(safe-area-inset-right, 0px));
+    }
+    #titleRow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; column-gap: 10px; }
+    #timeTopLeft {
+      font-size: var(--font-size-small);
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-color);
+      margin-bottom: 0;
+      white-space: nowrap;
+    }
+    #timeTopLeft .time-sep { opacity: 0.7; }
+    #timeTopLeft #currentTime,
+    #timeTopLeft #totalTime { text-align: left; min-width: auto; }
+    #titleRow { display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 10px; }
+    #audiobookTitle { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .titleRightSpacer { visibility: hidden; white-space: nowrap; }
+    h1 {
+      margin: 0 0 5px 0;
+      font-size: var(--font-size-medium);
+      text-align: center;
+    }
+     #currentTrackInfo {
+       text-align: center;
+       font-size: var(--font-size-small);
+       margin-bottom: 15px;
+       min-height: 1.5em; /* Prevent layout shift */
+       color: var(--accent-color);
+     }
+    #controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #progressContainer {
+      display: flex;
+      align-items: center;
+      width: 100%;
+      margin-bottom: 10px;
+    }
+    /* Time text base styling (used earlier, now in top-left) */
+    #currentTime, #totalTime { font-size: var(--font-size-small); }
+    /* Style the range input track (the bar) */
+    #progress {
+      flex-grow: 1;
+      height: var(--progress-track-h); /* keep visual bar slim */
+      cursor: pointer;
+      appearance: none; /* Override default */
+      width: 100%;
+      /* Show played fill using CSS var updated by JS */
+      --progress: 0%;
+      background: linear-gradient(
+        to right,
+        var(--accent-color) 0%,
+        var(--accent-color) var(--progress),
+        var(--button-bg) var(--progress),
+        var(--button-bg) 100%
+      );
+      border-radius: 5px;
+      margin: 0 10px;
+    }
+    /* Ensure gradient is visible across engines */
+    #progress::-webkit-slider-runnable-track {
+      height: var(--progress-track-h);
+      background: transparent;
+      border-radius: 5px;
+    }
+    #progress::-moz-range-track {
+      height: var(--progress-track-h);
+      background: transparent;
+      border-radius: 5px;
+    }
+    /* Style the range input thumb (the handle) */
+    #progress::-webkit-slider-thumb {
+      appearance: none;
+      width: var(--progress-thumb-size);
+      height: var(--progress-thumb-size);
+      background: var(--accent-color);
+      border-radius: 50%;
+      cursor: pointer;
+      /* Center the thumb over the thinner track */
+      margin-top: calc((var(--progress-track-h) - var(--progress-thumb-size)) / 2);
+    }
+    #progress::-moz-range-thumb { /* Firefox */
+      width: var(--progress-thumb-size);
+      height: var(--progress-thumb-size);
+      background: var(--accent-color);
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    /* Improve hit area and centering on Firefox by allowing taller input box */
+    @-moz-document url-prefix() {
+      #progress { height: var(--progress-thumb-size); }
+    }
+
+    #playbackControls, #skipControls {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 15px;
+      flex-wrap: wrap; /* Allow wrapping if needed */
+    }
+    button {
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      min-height: var(--button-size);
+      min-width: var(--button-size);
+      padding: var(--button-padding);
+      border: none;
+      border-radius: 8px; /* Slightly larger radius */
+      font-size: var(--font-size-medium);
+      margin: 5px; /* Spacing around buttons */
+      cursor: pointer;
+      flex-grow: 1; /* Allow buttons to grow a bit */
+      flex-basis: auto;
+       touch-action: manipulation; /* Optimize touch interaction */
+    }
+    #playbackControls button, #skipControls button {
+        flex-grow: 0; /* Don't let main controls grow too much */
+        padding: 15px 25px; /* More horizontal padding */
+    }
+
+    #speedControls {
+      display: grid; /* Two-row grid for speed buttons */
+      grid-auto-flow: column; /* Fill down then across */
+      grid-template-rows: repeat(2, auto);
+      grid-auto-columns: minmax(80px, 120px); /* cap width so buttons don't stretch */
+      gap: 8px;
+      align-items: stretch;
+      justify-content: center; /* center the grid area */
+      overflow-x: auto; /* Allow horizontal scroll if many columns */
+      padding: 10px 0;
+      width: 100%;
+    }
+    #speedControls button {
+      margin: 0; /* Use grid gap */
+      font-size: var(--font-size-small);
+      width: 100%; /* Fill grid cell */
+      padding: 12px;
+    }
+    #speedControls button.selected {
+      background-color: var(--selected-speed-bg);
+      font-weight: bold;
+    }
+
+    /* Small-screen tweaks (iPhone widths) */
+    @media (max-width: 430px) {
+      :root {
+        --button-size: 44px;
+        --button-padding: 10px;
+        --font-size-large: 1.2rem;
+        --font-size-medium: 1rem;
+        --font-size-small: 0.9rem;
+        --progress-track-h: 12px;
+        --progress-thumb-size: 24px;
+      }
+      h1 { font-size: var(--font-size-large); }
+      /* Keep time inline with title on small screens */
+      #timeTopLeft { margin-bottom: 0; }
+      #progress { height: var(--progress-track-h); }
+      #progress::-webkit-slider-runnable-track { height: var(--progress-track-h); }
+      #progress::-moz-range-track { height: var(--progress-track-h); }
+      /* Controls: fit horizontally with compact buttons */
+      #skipControls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      #playbackControls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      #playbackControls button, #skipControls button {
+        margin: 0;
+        padding: 8px 6px;
+        font-size: var(--font-size-small);
+        min-width: 0; /* allow shrink to grid cell */
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* Slightly tighter labels for prev/next */
+      #prevTrackBtn, #nextTrackBtn { font-size: 0.85rem; }
+      #speedControls {
+        /* Two neat rows that fit within width */
+        display: grid;
+        grid-auto-flow: row;            /* fill across, then wrap to next row */
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-rows: none;       /* let rows grow as needed */
+        grid-auto-columns: unset;       /* override desktop auto-columns */
+        gap: 6px;
+        justify-content: stretch;       /* use full width */
+        overflow-x: hidden;             /* prevent horizontal scroll */
+        padding: 6px 0;
+        width: 100%;
+      }
+      #speedControls button { font-size: 0.85rem; padding: 10px 6px; }
+      #skipControls, #playbackControls { width: 100%; }
+    }
+
+    /* Touch-friendly sizing: bigger thumb and hit area */
+    @media (pointer: coarse) {
+      :root {
+        --progress-track-h: 16px;
+        --progress-thumb-size: 44px; /* ~44px target as per HIG */
+      }
+      /* Make the input box tall so the hit area matches the thumb */
+      #progress { height: var(--progress-thumb-size); }
+      #progress::-webkit-slider-runnable-track { height: var(--progress-track-h); }
+      #progress::-moz-range-track { height: var(--progress-track-h); }
+    }
+
+    /* Larger touch screens (e.g., car displays) */
+    @media (pointer: coarse) and (min-width: 768px) {
+      :root {
+        --progress-track-h: 20px;
+        --progress-thumb-size: 56px;
+      }
+    }
+    @media (pointer: coarse) and (min-width: 1200px) {
+      :root {
+        --progress-track-h: 22px;
+        --progress-thumb-size: 64px;
+      }
+    }
+
+    #directory-tree-container {
+      grid-row: 2; /* Ensure it takes the second row defined in body */
+      overflow-y: auto; /* Allow only this container to scroll */
+      padding: 15px;
+      -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+      padding-left: calc(15px + env(safe-area-inset-left, 0px));
+      padding-right: calc(15px + env(safe-area-inset-right, 0px));
+      padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
+      min-height: 0; /* Critical for scrollable grid items */
+      min-width: 0;
+    }
+    .directory-tree {
+      list-style-type: none;
+      padding-left: 0;
+      /* Remove margin-top if it exists to prevent pushing content down */
+      margin-top: 0;
+    }
+    .directory-tree ul {
+      padding-left: 20px;
+      border-left: 1px solid var(--button-bg);
+      margin-left: 10px;
+    }
+    .directory-tree details summary {
+      font-weight: bold;
+      font-size: var(--font-size-large); /* Larger folder names */
+      color: var(--text-color);
+      cursor: pointer;
+      padding: 10px 5px; /* Larger tap area */
+      list-style: none; /* Remove default marker */
+      position: relative;
+    }
+     .directory-tree details summary::-webkit-details-marker { /* Hide Safari marker */
+        display: none;
+     }
+     .directory-tree details summary::before { /* Custom marker */
+        content: '+'; /* Collapsed state */
+        display: inline-block;
+        margin-right: 10px;
+        font-size: 1.2em;
+        width: 1em; /* Ensure alignment */
+     }
+     .directory-tree details[open] summary::before {
+        content: '-'; /* Expanded state */
+     }
+
+    .file {
+      cursor: pointer;
+      color: var(--accent-color);
+      font-size: var(--font-size-medium); /* Larger file names */
+      padding: 10px 5px; /* Larger tap area */
+      display: block; /* Ensure it takes full width for tapping */
+      margin-left: 5px;
+       border-radius: 4px;
+    }
+    .file.listened {
+      color: var(--listened-color);
+      font-style: italic;
+    }
+     .file.playing {
+        background-color: var(--playing-highlight-bg);
+        color: var(--text-color); /* Ensure contrast when highlighted */
+        font-weight: bold;
+     }
+    audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div id="titleRow">
+      <div id="timeTopLeft"><span id="currentTime">00:00</span><span class="time-sep">/</span><span id="totalTime">00:00</span></div>
+      <h1 id="audiobookTitle">Audiobook Player</h1>
+      <div class="titleRightSpacer"></div>
+    </div>
+      <div id="currentTrackInfo">No track selected</div>
+     <div id="controls">
+      <div id="progressContainer">
+        <input type="range" id="progress" min="0" step="0.1" value="0">
+      </div>
+      <div id="skipControls">
+         <button id="prevTrackBtn">⏮️ Prev</button>
+         <button id="skipBackwardBtn">-10s</button>
+         <button id="skipForwardBtn">+10s</button>
+         <button id="nextTrackBtn">Next ⏭️</button>
+      </div>
+      <div id="playbackControls">
+        <button id="playBtn">▶️ Play</button>
+        <button id="pauseBtn" style="display: none;">⏸️ Pause</button>
+        <button id="restartBtn">🔄 Restart</button>
+      </div>
+      <div id="speedControls">
+        <button data-speed="0.8">0.8x</button>
+        <button data-speed="1.0" class="selected">1.0x</button> <button data-speed="1.2">1.2x</button>
+        <button data-speed="1.5">1.5x</button>
+        <button data-speed="1.8">1.8x</button>
+        <button data-speed="2.0">2.0x</button>
+        <button data-speed="2.2">2.2x</button>
+        <button data-speed="2.5">2.5x</button>
+        <button data-speed="3.0">3.0x</button>
+        <button data-speed="3.5">3.5x</button>
+        <button data-speed="4.0">4.0x</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="directory-tree-container">
+     <ul id="directory-tree" class="directory-tree"></ul>
+  </div>
+
+  <audio id="player" preload="metadata"></audio>
+
+  <script>
+    // Viewport height fix for iOS Safari (landscape/URL bar)
+    function updateVhVar() {
+      const vh = (window.visualViewport ? window.visualViewport.height : window.innerHeight) * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+    updateVhVar();
+    window.addEventListener('resize', updateVhVar);
+    window.addEventListener('orientationchange', updateVhVar);
+    window.addEventListener('pageshow', updateVhVar);
+    const audio = document.getElementById('player');
+    const playBtn = document.getElementById('playBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const prevTrackBtn = document.getElementById('prevTrackBtn');
+    const nextTrackBtn = document.getElementById('nextTrackBtn');
+    const skipBackwardBtn = document.getElementById('skipBackwardBtn');
+    const skipForwardBtn = document.getElementById('skipForwardBtn');
+    const speedBtns = document.querySelectorAll('#speedControls button');
+    const progress = document.getElementById('progress');
+    const currentTimeSpan = document.getElementById('currentTime');
+    const totalTimeSpan = document.getElementById('totalTime');
+    const directoryTreeElement = document.getElementById('directory-tree');
+    const audiobookTitleElement = document.getElementById('audiobookTitle');
+    const currentTrackInfoElement = document.getElementById('currentTrackInfo');
+    const directoryTreeContainer = document.getElementById('directory-tree-container'); // Get scroll container
+    const titleRightSpacerEl = document.querySelector('.titleRightSpacer');
+    
+
+    // Compute server prefix for subpath deployments
+    const PREFIX = (function(){
+      if (window.__AB_PREFIX) return window.__AB_PREFIX;
+      const base = document.querySelector('base');
+      if (base) { try { return new URL(base.href).pathname.replace(/\/$/, ''); } catch {} }
+      const m = location.pathname.match(/^\/(.+?)\//);
+      return m ? '/' + m[1] : '';
+    })();
+
+    const SKIP_TIME = 10;
+    const SAVE_STATE_INTERVAL = 60000; // Save state every 60 seconds during playback (server sync remains throttled separately)
+    const STORAGE_KEY = 'audiobookPlayerState'; // Key for localStorage
+    const LISTENED_STORAGE_KEY = 'audiobookListened'; // Key for listened tracks
+
+    let currentTrackIndex = -1;
+    let allFileSpans = [];
+    let currentBookTitle = 'Audiobook Player';
+    let saveStateTimeout = null;
+    let isLoadingState = false; // Flag to prevent saving state while initially loading
+    let isSeeking = false; // Suppress jitter while scrubbing
+    // Always navigate across books (toggle removed)
+    let selectedPlaybackRate = 1.0; // Persist chosen speed across tracks
+    let pendingResumeTime = null; // Ensure resume sticks after refresh
+
+    function syncTimeSpacer() {
+        if (titleRightSpacerEl) {
+            titleRightSpacerEl.textContent = `${currentTimeSpan.textContent}/${totalTimeSpan.textContent}`;
+        }
+    }
+
+    // --- State Management ---
+
+    function saveState(forceImmediate = false) {
+        if (isLoadingState) return; // Don't save while initially loading/applying state
+
+       // Get expanded state of details elements
+       const detailsElements = directoryTreeElement.querySelectorAll('details');
+       const expandedStates = {};
+       detailsElements.forEach(details => {
+          // Prefer stable data-key if present; fallback to summary text
+          const key = details.dataset.key || details.querySelector('summary')?.textContent?.trim();
+          if (key) expandedStates[key] = details.open;
+       });
+
+       // Get scroll position
+       const scrollPosition = directoryTreeContainer.scrollTop;
+
+       const currentUrlRel = (currentTrackIndex >= 0 && allFileSpans[currentTrackIndex]) ? allFileSpans[currentTrackIndex].dataset.url : null;
+       const state = {
+          currentUrl: currentUrlRel,
+          currentSrc: audio.currentSrc || null, // Use absolute as fallback
+          currentTime: audio.currentTime || 0,
+          playbackRate: audio.playbackRate || 1.0, // ** ADDED Playback Rate **
+          currentTrackIndex: currentTrackIndex,
+          currentBookTitle: currentBookTitle,
+          expandedStates: expandedStates, // ** ADDED Expanded States **
+          scrollPosition: scrollPosition  // ** ADDED Scroll Position **
+       };
+       try {
+           // Hint mirror.js to POST immediately on this write when it's a control action
+           if (forceImmediate && typeof window.__abForceNextPost === 'function') {
+               window.__abForceNextPost();
+           }
+           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+       } catch (e) {
+           console.error("Error saving state to localStorage:", e);
+       }
+        clearTimeout(saveStateTimeout);
+        saveStateTimeout = null; // Clear timeout after saving
+    }
+
+    function loadState() {
+       try {
+           const savedState = localStorage.getItem(STORAGE_KEY);
+           if (savedState) {
+               const state = JSON.parse(savedState);
+               // console.log('State loaded:', state);
+               return state;
+           }
+       } catch (e) {
+           console.error("Error loading state from localStorage:", e);
+            // If parsing fails, clear the potentially corrupted state
+            clearSavedState();
+       }
+       return null;
+    }
+
+    // Applies only the UI parts of the state (scroll, expanded) - Needs to run AFTER tree is built
+    function applyUiState(state) {
+        if (!state) return;
+
+        // Restore Expanded States FIRST, as this affects scroll height
+        if (state.expandedStates) {
+            const detailsElements = directoryTreeElement.querySelectorAll('details');
+            detailsElements.forEach(details => {
+                const key = details.dataset.key || details.querySelector('summary')?.textContent?.trim();
+                if (key && Object.prototype.hasOwnProperty.call(state.expandedStates, key)) {
+                    details.open = !!state.expandedStates[key];
+                }
+            });
+        }
+
+        // Restore Scroll Position AFTER potentially opening details
+        if (typeof state.scrollPosition === 'number') {
+            // Use setTimeout to ensure rendering is complete after potential 'open' changes
+            setTimeout(() => {
+                 directoryTreeContainer.scrollTop = state.scrollPosition;
+                 // console.log('Restored scroll position:', state.scrollPosition);
+            }, 0); // Delay slightly
+        }
+    }
+
+
+    // Applies only the playback part of the state (track, time, speed) - Needs allFileSpans populated
+    function applyPlaybackState(state) {
+        if (!state || (!state.currentSrc && !state.currentUrl)) return false;
+
+        // Restore playback speed globally FIRST
+        const savedSpeed = state.playbackRate || 1.0;
+        selectedPlaybackRate = savedSpeed;
+        audio.defaultPlaybackRate = savedSpeed;
+        audio.playbackRate = savedSpeed;
+        speedBtns.forEach(btn => {
+            btn.classList.toggle('selected', parseFloat(btn.dataset.speed) === savedSpeed);
+        });
+        // console.log('Restored speed:', savedSpeed);
+
+        // Prefer relative URL match, then absolute-resolved match
+        let targetSpan = null;
+        if (state.currentUrl) {
+            targetSpan = allFileSpans.find(span => span.dataset.url === state.currentUrl);
+        }
+        if (!targetSpan && state.currentSrc) {
+            const absFromRel = (rel) => {
+                try { return new URL(rel, location.href).href; } catch { return rel; }
+            };
+            targetSpan = allFileSpans.find(span => absFromRel(span.dataset.url) === state.currentSrc);
+        }
+
+        if (targetSpan) {
+            currentTrackIndex = allFileSpans.indexOf(targetSpan);
+            currentBookTitle = state.currentBookTitle || getBookTitle(targetSpan);
+            // Build src from relative URL using /media for robustness across hosts/prefixes
+            try {
+                const rel = (targetSpan.dataset.url || '').replace(/^\//,'');
+                const enc = rel.split('/').map(encodeURIComponent).join('/');
+                const nextSrc = PREFIX + '/media/' + enc;
+                const previousSrc = audio.src;
+                audio.src = nextSrc;
+                if (previousSrc !== nextSrc) { audio.currentTime = 0; }
+            } catch (e) {
+                // Fallback to saved absolute src if any
+                if (state.currentSrc) audio.src = state.currentSrc;
+            }
+
+            // Set time/speed after metadata loads
+            const restoreTime = () => {
+                 // Remove this listener once it runs
+                 audio.removeEventListener('loadedmetadata', restoreTime);
+
+                 if (isFinite(audio.duration)) {
+                     const safe = Math.max(0, Math.min(state.currentTime || 0, audio.duration - 0.25));
+                     pendingResumeTime = safe;
+                     audio.currentTime = safe; // initial attempt
+                     progress.max = audio.duration; // Ensure progress max is set
+                     totalTimeSpan.textContent = formatTime(audio.duration);
+                 } else {
+                     pendingResumeTime = state.currentTime || 0; // try again later
+                 }
+                 progress.value = audio.currentTime; // Update progress slider value
+                 updateProgressFill();
+                 currentTimeSpan.textContent = formatTime(audio.currentTime); // Update time display
+                 syncTimeSpacer();
+
+                 updateTrackHighlight(); // Highlight the track
+                 updateHeaderInfo();     // Update book/track title display
+                 updateMediaSessionMetadata(); // Update OS info
+
+                 console.log(`Restored track: ${getFileName(state.currentSrc)} at ${formatTime(audio.currentTime)}`);
+                 isLoadingState = false; // Allow saving state again
+             };
+
+             // If metadata is already loaded (e.g., src didn't change, just reloaded page)
+             if (audio.readyState >= 1) { // HAVE_METADATA or higher
+                 restoreTime();
+             } else {
+                 // Otherwise, wait for it
+                 audio.addEventListener('loadedmetadata', restoreTime);
+             }
+
+             return true; // State application initiated
+        } else {
+            console.warn("Saved track URL not found in current directory structure:", state.currentSrc);
+            clearSavedState(); // Clear invalid state
+            isLoadingState = false; // Allow saving state even if restoration failed
+        }
+        return false; // State could not be applied
+    }
+
+    function clearSavedState() {
+         try {
+             localStorage.removeItem(STORAGE_KEY);
+             console.log('Cleared saved state.');
+         } catch (e) {
+              console.error("Error clearing state from localStorage:", e);
+         }
+         // Reset relevant variables if needed (optional, depends on desired behavior)
+         // currentTrackIndex = -1;
+         // currentBookTitle = 'Audiobook Player';
+         // Set default speed visually if state is cleared
+         audio.playbackRate = 1.0;
+         speedBtns.forEach(btn => {
+             btn.classList.toggle('selected', parseFloat(btn.dataset.speed) === 1.0);
+         });
+    }
+
+    // Save state when the page is about to be unloaded
+    window.addEventListener('beforeunload', saveState);
+
+    // Save state periodically during playback
+    audio.addEventListener('timeupdate', () => {
+        // Update progress bar and time display
+        if (!isNaN(audio.duration) && !isSeeking) { // Don't update if user is seeking
+            progress.value = audio.currentTime;
+            updateProgressFill();
+            currentTimeSpan.textContent = formatTime(audio.currentTime);
+            syncTimeSpacer();
+        }
+        // Periodic saving logic
+        if (!audio.paused && !saveStateTimeout && !isLoadingState) {
+            saveStateTimeout = setTimeout(() => {
+                 saveState();
+                 // saveStateTimeout = null; // saveState clears the timeout now
+            }, SAVE_STATE_INTERVAL);
+        }
+    });
+
+    // Save state immediately on ended; pause handled below with suppression during track change
+    audio.addEventListener('ended', () => saveState(true));
+    // Also save state when user changes expansion state manually
+    directoryTreeElement.addEventListener('toggle', saveState, true); // Use capture phase
+    // Save state when scroll finishes (debounced)
+    let scrollTimeout;
+    directoryTreeContainer.addEventListener('scroll', () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(saveState, 250); // Save 250ms after scrolling stops
+    });
+
+
+    // --- UI & Playback Logic ---
+
+    function formatTime(seconds) {
+       if (isNaN(seconds)) return '00:00';
+       const minutes = Math.floor(seconds / 60);
+       const secs = Math.floor(seconds % 60);
+       return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function getFileName(url) {
+       try {
+           return decodeURIComponent(url.split('/').pop() || '');
+       } catch (e) {
+           return url; // Fallback if decoding fails
+       }
+    }
+
+    function getBookTitle(fileSpan) {
+        try {
+            const parentLi = fileSpan.closest('ul')?.closest('li');
+            if (parentLi) {
+                const summary = parentLi.querySelector('summary');
+                if (summary) {
+                    // Extract text content, removing the +/- marker if present
+                    return summary.textContent.trim().replace(/^[+-]\s*/, '');
+                }
+            }
+        } catch (e) { console.error("Error getting book title:", e); }
+        return 'Unknown Book'; // Fallback
+    }
+
+    function updateHeaderInfo() {
+        const fileName = audio.src ? getFileName(audio.src) : "No track selected";
+        audiobookTitleElement.textContent = currentBookTitle || 'Audiobook Player';
+        currentTrackInfoElement.textContent = fileName;
+        // Reset color if previously set to error
+        currentTrackInfoElement.style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent-color') || '#64b5f6';
+    }
+
+    function updateTrackHighlight() {
+        allFileSpans.forEach(span => span.classList.remove('playing'));
+        if (currentTrackIndex >= 0 && currentTrackIndex < allFileSpans.length) {
+            const currentSpan = allFileSpans[currentTrackIndex];
+            currentSpan.classList.add('playing');
+            // Only scroll into view if we are *not* currently restoring state,
+            // to avoid overriding the restored scroll position.
+            if (!isLoadingState) {
+               currentSpan.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); // Use nearest to be less disruptive
+            }
+        }
+    }
+
+    function markAsListened(url) {
+        let listened = [];
+        try {
+            listened = JSON.parse(localStorage.getItem(LISTENED_STORAGE_KEY) || '[]');
+        } catch (e) { console.error("Error reading listened status:", e); listened = [];}
+
+        if (!listened.includes(url)) {
+            listened.push(url);
+            try {
+                localStorage.setItem(LISTENED_STORAGE_KEY, JSON.stringify(listened));
+            } catch (e) { console.error("Error saving listened status:", e); }
+        }
+    }
+
+    function playTrack(index) {
+        if (index >= 0 && index < allFileSpans.length) {
+            currentTrackIndex = index;
+            const span = allFileSpans[index];
+            const rel = (span.dataset.url || '').replace(/^\//,'');
+            const enc = rel.split('/').map(encodeURIComponent).join('/');
+            const url = PREFIX + '/media/' + enc;
+
+            currentBookTitle = getBookTitle(span); // Update book title
+            const previousSrc = audio.src;
+            // Suppress immediate pause-post for a short window when switching tracks
+            suppressPauseImmediateUntil = Date.now() + 1000;
+            audio.src = url;
+            // Re-apply selected speed for new track (robust for browsers that reset on src change)
+            audio.defaultPlaybackRate = selectedPlaybackRate;
+            audio.playbackRate = selectedPlaybackRate;
+
+            // Playback rate persists automatically unless changed by user or loadState
+            // No need to explicitly set audio.playbackRate here unless resetting
+
+            // Only reset time if the source actually changes
+            if (previousSrc !== url) {
+                 audio.currentTime = 0; // Start new track from beginning
+            }
+
+            audio.play().catch(e => console.error("Error playing audio:", e)); // Play and catch potential errors
+            markAsListened(url);
+            span.classList.add('listened'); // Visually mark immediately
+            updateTrackHighlight();
+            updateHeaderInfo();
+            updateMediaSessionMetadata(); // Update OS media info
+        } else {
+            console.warn(`Attempted to play invalid index: ${index}`);
+             // audio.pause(); // Don't pause if trying to go past the end, just stop
+             // currentTrackIndex = -1; // Keep index if it was valid before? Or reset?
+             // updateTrackHighlight();
+             // updateHeaderInfo();
+        }
+    }
+
+    function playNextTrack() {
+        console.log('Playing next track');
+        if (currentTrackIndex < 0) { playTrack(0); return; }
+        playTrack(currentTrackIndex + 1);
+    }
+
+    function playPrevTrack() {
+        console.log('Playing previous track');
+        if (currentTrackIndex < 0) { playTrack(0); return; }
+        playTrack(currentTrackIndex - 1);
+    }
+
+    // --- Build Directory Tree --- (Unchanged)
+    function buildTree(node, path = '') {
+       const currentPath = path ? `${path}/${node.name}` : node.name;
+       if (node.type === 'directory') {
+           // Sort children: directories first, then files, both alphabetically
+           node.children.sort((a, b) => {
+               if (a.type === b.type) {
+                   return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }); // Natural sort
+               }
+               return a.type === 'directory' ? -1 : 1; // Directories first
+           });
+
+           // Only create details/summary if there are children
+           if (node.children && node.children.length > 0) {
+               let html = `<li><details data-key="${currentPath}"><summary>${node.name}</summary><ul>`; // Stable key for state
+               for (let child of node.children) {
+                   html += buildTree(child, currentPath);
+               }
+               html += '</ul></details></li>';
+               return html;
+           } else {
+               // Optional: Render empty directories differently or not at all
+               return `<li><span class="directory-empty">${node.name} (empty)</span></li>`;
+           }
+
+       } else if (node.type === 'file') {
+           // Check if file seems playable (basic check)
+           if (/\.(mp3|m4a|m4b|ogg|wav|aac|flac)$/i.test(node.name)) { // Added m4b
+                // Use dataset for URL and maybe path/book info if needed later
+                return `<li><span class="file" data-url="${node.url}" data-path="${currentPath}">${node.name}</span></li>`;
+           } else {
+                return ''; // Skip non-audio files
+           }
+       }
+       return ''; // Ignore other types
+     }
+
+    // --- Media Session API Integration --- (Unchanged)
+    function updateMediaSessionMetadata() {
+       if ('mediaSession' in navigator) {
+           const fileName = audio.src ? getFileName(audio.src) : 'No Track Selected';
+
+           navigator.mediaSession.metadata = new MediaMetadata({
+               title: fileName,
+               artist: currentBookTitle, // Use Book title as Artist
+               album: currentBookTitle,  // Use Book title as Album
+               // artwork: [ /* Add artwork if available */ ]
+           });
+       }
+    }
+    function setupMediaSessionHandlers() {
+       if (!('mediaSession' in navigator)) {
+           console.log("Media Session API not supported.");
+           return;
+       }
+       try {
+           navigator.mediaSession.setActionHandler('play', () => { audio.play().catch(e => console.error("Media Session play error:", e)); });
+           navigator.mediaSession.setActionHandler('pause', () => { audio.pause(); });
+           navigator.mediaSession.setActionHandler('stop', () => { audio.pause(); audio.currentTime = 0; saveState(true); }); // Ensure save on stop
+           navigator.mediaSession.setActionHandler('seekbackward', (details) => { skipBackwardBtn.click(); }); // Map to button click
+           navigator.mediaSession.setActionHandler('seekforward', (details) => { skipForwardBtn.click(); }); // Map to button click
+           navigator.mediaSession.setActionHandler('previoustrack', () => { playPrevTrack(); });
+           navigator.mediaSession.setActionHandler('nexttrack', () => { playNextTrack(); });
+
+            // Set initial position state for Media Session
+            if (audio.duration) {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration,
+                    playbackRate: audio.playbackRate,
+                    position: audio.currentTime
+                });
+            }
+
+       } catch (error) {
+           console.error('Error setting up Media Session handlers:', error);
+       }
+    }
+
+    // Update media session position state periodically
+    audio.addEventListener('timeupdate', () => {
+        if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && audio.duration) {
+            try {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration,
+                    playbackRate: audio.playbackRate,
+                    position: audio.currentTime
+                });
+            } catch (error) {
+                // console.warn("Error updating media session position:", error); // Can be noisy
+            }
+        }
+        // Keep header time mirrored to right spacer on any timeupdate
+        if (!isNaN(audio.duration) && !isSeeking) {
+            syncTimeSpacer();
+        }
+    });
+    // Deduplicate rapid double-fires of ratechange (some browsers fire twice)
+    let lastRateSavedVal = null;
+    let lastRateSavedAt = 0;
+    audio.addEventListener('ratechange', () => {
+        if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && audio.duration) {
+             try {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration,
+                    playbackRate: audio.playbackRate,
+                    position: audio.currentTime
+                });
+            } catch (error) {
+                console.warn("Error updating media session position on rate change:", error);
+            }
+        }
+        const nowTs = Date.now();
+        if (lastRateSavedVal === audio.playbackRate && (nowTs - lastRateSavedAt) < 300) {
+            return; // skip duplicate within 300ms
+        }
+        lastRateSavedVal = audio.playbackRate;
+        lastRateSavedAt = nowTs;
+        saveState(true); // Save state when speed changes
+    });
+
+
+    // --- Initialization ---
+    document.addEventListener('DOMContentLoaded', () => {
+        isLoadingState = true; // Prevent saving state during initial load
+        const initialState = loadState(); // Load state first
+
+        // Cross-book navigation is always on now (no persisted nav mode)
+
+        fetch(PREFIX + '/audiobooks.json')
+            .then(response => {
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return response.json();
+             })
+            .then(data => {
+                directoryTreeElement.innerHTML = buildTree(data);
+                allFileSpans = Array.from(directoryTreeElement.querySelectorAll('.file')); // Collect file spans
+
+                // Check listened status for all files
+                let listenedUrls = [];
+                try { listenedUrls = JSON.parse(localStorage.getItem(LISTENED_STORAGE_KEY) || '[]'); }
+                catch (e) { console.error("Error reading listened status on load:", e); }
+
+                allFileSpans.forEach((span, index) => {
+                    const url = span.dataset.url;
+                    if (listenedUrls.includes(url)) span.classList.add('listened');
+                    span.addEventListener('click', () => playTrack(index)); // Add click listener
+                });
+
+                // ***** Apply UI state (scroll, expanded) AFTER building tree *****
+                applyUiState(initialState);
+
+                // ***** THEN attempt to apply playback state *****
+                if (!applyPlaybackState(initialState)) {
+                    // If no playback state was restored, set default speed/header and finish loading
+                    const defaultSpeed = 1.0;
+                    selectedPlaybackRate = defaultSpeed;
+                    audio.defaultPlaybackRate = defaultSpeed;
+                    audio.playbackRate = defaultSpeed;
+                    speedBtns.forEach(btn => {
+                       btn.classList.toggle('selected', parseFloat(btn.dataset.speed) === defaultSpeed);
+                    });
+                    updateHeaderInfo(); // Set default header
+                    isLoadingState = false; // Allow saving state now
+                    syncTimeSpacer();
+                }
+                // Note: applyPlaybackState sets isLoadingState = false upon completion if it restored state.
+
+                setupMediaSessionHandlers(); // Setup Media Session last
+            })
+            .catch(error => {
+                console.error('Error loading or processing audiobooks.json:', error);
+                currentTrackInfoElement.textContent = 'Error loading audiobooks!';
+                currentTrackInfoElement.style.color = 'red';
+                isLoadingState = false; // Allow saving state even on error
+            });
+
+        // No ownership banner/messages in UI
+    });
+
+    // Nav mode toggle removed
+
+    // --- Event Listeners ---
+
+    // Playback controls
+    playBtn.addEventListener('click', () => {
+         if (!audio.currentSrc && allFileSpans.length > 0) { // Check currentSrc before trying to play
+            // If nothing loaded and no state restored, play the first track
+             playTrack(0);
+         } else if (audio.currentSrc) { // Check currentSrc
+             audio.play().catch(e => console.error("Error playing audio:", e));
+         }
+    });
+    pauseBtn.addEventListener('click', () => audio.pause()); // Pause itself triggers saveState
+    restartBtn.addEventListener('click', () => {
+        audio.currentTime = 0;
+        saveState(true); // Save the reset time
+    });
+
+    // Skip controls
+    skipBackwardBtn.addEventListener('click', () => {
+        audio.currentTime = Math.max(0, audio.currentTime - SKIP_TIME);
+        saveState(true); // Save new position
+    });
+    skipForwardBtn.addEventListener('click', () => {
+        const duration = (typeof audio.duration === 'number' && isFinite(audio.duration)) ? audio.duration : Infinity; // Use Infinity if duration unknown
+        audio.currentTime = Math.min(duration, audio.currentTime + SKIP_TIME);
+        saveState(true); // Save new position
+    });
+
+    // Next/Prev Track controls
+    nextTrackBtn.addEventListener('click', playNextTrack);
+    prevTrackBtn.addEventListener('click', playPrevTrack);
+
+    // Speed controls
+    speedBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const speed = parseFloat(btn.dataset.speed);
+            selectedPlaybackRate = speed;
+            // Only set playbackRate to avoid double ratechange events
+            audio.playbackRate = speed;
+            speedBtns.forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            // Do not call saveState here; the 'ratechange' event will persist once.
+        });
+    });
+
+    // Progress bar interaction
+    let wasPlayingBeforeSeek = false;
+    let suppressPauseImmediateUntil = 0; // ms timestamp to avoid double post when switching tracks
+    function updateProgressFill() {
+        const max = parseFloat(progress.max) || 0;
+        const val = parseFloat(progress.value) || 0;
+        const pct = (max > 0) ? Math.max(0, Math.min(100, (val / max) * 100)) : 0;
+        progress.style.setProperty('--progress', pct + '%');
+    }
+    progress.addEventListener('input', () => {
+       // Update time display instantly while dragging for feedback
+       currentTimeSpan.textContent = formatTime(parseFloat(progress.value));
+       updateProgressFill();
+       syncTimeSpacer();
+       // Optional: Update Media Session position optimistically
+       if ('mediaSession' in navigator && navigator.mediaSession.setPositionState && audio.duration) {
+           try {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration,
+                    playbackRate: audio.playbackRate,
+                    position: parseFloat(progress.value) // Use slider value directly
+                });
+           } catch(e) {/* ignore */}
+        }
+    });
+    progress.addEventListener('change', () => {
+        audio.currentTime = parseFloat(progress.value);
+        if (wasPlayingBeforeSeek) {
+            audio.play().catch(e => console.error("Error resuming play after seek:", e));
+        }
+        saveState(true); // Save the final seek position
+    });
+    function beginSeek() {
+        wasPlayingBeforeSeek = !audio.paused;
+        isSeeking = true;
+        if (wasPlayingBeforeSeek) audio.pause();
+    }
+    function endSeek() {
+        if (isSeeking) {
+            isSeeking = false;
+            if (wasPlayingBeforeSeek) {
+                audio.play().catch(e => console.error("Error resuming play after seek:", e));
+            }
+        }
+    }
+    progress.addEventListener('mousedown', beginSeek);
+    progress.addEventListener('touchstart', beginSeek, { passive: true });
+    window.addEventListener('mouseup', endSeek);
+    window.addEventListener('touchend', endSeek, { passive: true });
+
+
+    // Audio element events
+    audio.addEventListener('loadedmetadata', () => {
+        // This runs *after* applyPlaybackState potentially sets the time
+        // Re-apply pending resume time if needed
+        if (pendingResumeTime != null && isFinite(audio.duration)) {
+            const safe = Math.max(0, Math.min(pendingResumeTime, audio.duration - 0.25));
+            if (Math.abs((audio.currentTime || 0) - safe) > 0.25) {
+                audio.currentTime = safe;
+            }
+        }
+        // Ensure chosen speed is applied after metadata is ready
+        if (!Number.isNaN(selectedPlaybackRate)) {
+            audio.defaultPlaybackRate = selectedPlaybackRate;
+            audio.playbackRate = selectedPlaybackRate;
+        }
+        if (!isNaN(audio.duration)) {
+            progress.max = audio.duration;
+            totalTimeSpan.textContent = formatTime(audio.duration);
+            syncTimeSpacer();
+        } else {
+             progress.max = 0;
+             totalTimeSpan.textContent = '??:??';
+             syncTimeSpacer();
+        }
+        // Ensure UI reflects current state *after* metadata load and potential time setting
+        progress.value = audio.currentTime;
+        updateProgressFill();
+        currentTimeSpan.textContent = formatTime(audio.currentTime);
+        syncTimeSpacer();
+
+        // Update Media Session metadata and position state here too
+        updateMediaSessionMetadata();
+        if ('mediaSession' in navigator && navigator.mediaSession.setPositionState) {
+             try {
+                navigator.mediaSession.setPositionState({
+                    duration: audio.duration || 0,
+                    playbackRate: audio.playbackRate,
+                    position: audio.currentTime
+                });
+            } catch (error) {
+                console.warn("Error setting initial media session position:", error);
+            }
+        }
+    });
+    audio.addEventListener('play', () => {
+        playBtn.style.display = 'none';
+        pauseBtn.style.display = 'inline-block';
+        updateMediaSessionMetadata(); // Ensure metadata is current on play
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = "playing";
+        // If resume didn't stick yet, enforce once on play
+        if (pendingResumeTime != null && isFinite(audio.duration)) {
+            const safe = Math.max(0, Math.min(pendingResumeTime, audio.duration - 0.25));
+            if (Math.abs((audio.currentTime || 0) - safe) > 0.25) {
+                try { audio.currentTime = safe; } catch (e) {}
+            }
+        }
+        // Post state immediately when user presses Play
+        saveState(true);
+    });
+    audio.addEventListener('pause', () => {
+        playBtn.style.display = 'inline-block';
+        pauseBtn.style.display = 'none';
+        clearTimeout(saveStateTimeout); // Clear pending periodic save on pause
+        saveStateTimeout = null;
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = "paused";
+        // Save immediately unless this pause is due to an intentional track switch
+        if (Date.now() > suppressPauseImmediateUntil) {
+            saveState(true);
+        } else {
+            // Still persist to localStorage; mirror will throttle while playing
+            saveState(false);
+        }
+    });
+    audio.addEventListener('ended', () => {
+        console.log('Track ended, playing next.');
+        // saveState() is called by its own listener
+        playNextTrack(); // Play next track after saving state
+    });
+    audio.addEventListener('canplay', () => {
+        // As a last safety net for some browsers
+        if (pendingResumeTime != null && isFinite(audio.duration)) {
+            const safe = Math.max(0, Math.min(pendingResumeTime, audio.duration - 0.25));
+            if (Math.abs((audio.currentTime || 0) - safe) > 0.25) {
+                try { audio.currentTime = safe; } catch (e) {}
+            }
+        }
+    });
+    audio.addEventListener('seeked', () => {
+        if (pendingResumeTime != null) {
+            const diff = Math.abs((audio.currentTime || 0) - pendingResumeTime);
+            if (diff <= 0.3) pendingResumeTime = null; // resume confirmed
+        }
+    });
+    audio.addEventListener('error', (e) => {
+        console.error("Audio playback error:", e);
+        const trackName = getFileName(audio.src || '');
+        currentTrackInfoElement.textContent = `Error playing ${trackName || 'track'}`;
+        currentTrackInfoElement.style.color = 'orange';
+        // Maybe try playing the next track? Or just stop?
+        // playNextTrack(); // Optional: automatically skip errored track
+    });
+
+  </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <link rel="icon" href="static/favicon.ico" sizes="any" />
+  <title>Login – BookBeam</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: system-ui, Arial, sans-serif;
+      background:#121212; color:#e0e0e0;
+      display:flex; align-items:center; justify-content:center;
+      height: 100dvh; margin:0;
+      padding-left: calc(16px + env(safe-area-inset-left, 0px));
+      padding-right: calc(16px + env(safe-area-inset-right, 0px));
+      padding-top: calc(16px + env(safe-area-inset-top, 0px));
+      padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+    .card { background:#1e1e1e; padding:24px; border-radius:12px; width: 100%; max-width: 420px; box-shadow: 0 6px 24px rgba(0,0,0,0.4); margin: 0 auto; }
+    h1 { margin:0 0 16px; font-size:20px; }
+    label { display:block; margin:12px 0 6px; font-size:14px; }
+    input { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #333; background:#111; color:#eee; }
+    button { width:100%; margin-top:16px; padding:10px 12px; border:none; border-radius:8px; background:#1976d2; color:#fff; font-weight:600; cursor:pointer; }
+    .err { color:#ffa5a5; min-height:1.2em; margin-top:8px; font-size:14px; }
+  </style>
+  </head>
+<body>
+  <div class="card">
+    <h1>Sign in to BookBeam</h1>
+    <form id="loginForm" method="post" action="login" autocomplete="on">
+      <label for="u">Username</label>
+      <input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required />
+      <label for="p">Password</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" required />
+      <button type="submit" id="btn">Login</button>
+    </form>
+    <div class="err" id="err"></div>
+  </div>
+  <script>
+    // Focus username for convenience
+    (function(){ try{ document.getElementById('u').focus(); }catch(e){} })();
+  </script>
+</body>
+</html>

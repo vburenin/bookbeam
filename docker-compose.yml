@@ -1,0 +1,20 @@
+services:
+  bookbeam:
+    build: .
+    container_name: bookbeam-server
+    command: ["-addr", ":8180", "-data", "/data"]
+    ports:
+      - "8180:8180"
+    volumes:
+      # TODO: Update `source` to your actual audiobooks directory on the host
+      - type: bind
+        source: ${BOOKBEAM_DATA}
+        target: /data
+    env_file:
+      - .env.bookbeam
+    environment:
+      # Users are loaded either from repeated -u flags or BOOKBEAM_USERS.
+      # Make BOOKBEAM_USERS explicit here so compose passes it through from .env.bookbeam
+      BOOKBEAM_USERS: ${BOOKBEAM_USERS}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+    restart: unless-stopped
