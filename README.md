@@ -1,53 +1,47 @@
-# BookBeam (Go + Docker)
+# BookBeam
 
-BookBeam is a small, password‑protected web server that indexes a local audiobook library, serves a mobile/car‑friendly player UI, remembers your listening state on the server, and ensures only one page plays audio at a time. Ships with Docker and supports running under a sub‑path (e.g., https://example.com/mybooks/).
+BookBeam is a small, password‑protected web server that indexes a local audiobook library, serves a mobile/car‑friendly player UI, remembers your listening state on the server, and ensures only one page plays audio at a time. It supports running under a sub‑path (e.g., https://example.com/mybooks/).
 
 ## Features
 
-- Auth via CLI flags: `-u user:pass` (repeat for multiple users). No DB.
+- Auth via CLI flags: `-u user:pass` (repeat for multiple users) and/or `BOOKBEAM_USERS` env var. No DB.
 - Long‑lived session: HMAC‑signed cookie (10 years) with a secret persisted at `/data/session_secret`.
 - Server‑side state per user: stores current track/time, speed, listened list, folder expansion, scroll, volume/mute at `/data/state/<username>.json`.
-- Pluggable UI: If `/data/index.html` exists, it is served; otherwise the bundled UI is used. The server injects small scripts for state sync, single‑owner playback, and a top‑right Logout link.
+- Bundled UI: the server always serves the built‑in single‑page UI and injects small scripts for state sync, single‑owner playback, and a top‑right Logout link.
 - Single active player: Only one tab/device plays at a time. Others auto‑pause (SSE + heartbeat lease).
 - Library indexing & cache:
-  - Loads `/data/audiobooks.json` if present on start.
-  - Otherwise indexes `/data` and writes the cache.
-  - Efficient hourly reindex: compares a fast signature (paths/sizes/mtimes) and rebuilds only if changed.
-- Streaming with HTTP Range: play files via `/media/<relative-path>` or directly by their relative path (the server serves files under `/`).
+  - On startup, the server rebuilds the index by scanning `/data` and writes `/data/audiobooks.json`.
+  - An efficient hourly check compares a fast signature (paths/sizes/mtimes) and refreshes the cache only if changed.
+- Streaming with HTTP Range: play files via `/media/<relative-path>` or directly by their relative path (direct file URLs under your deployed sub‑path are supported).
 - Reverse‑proxy friendly: honors `X-Forwarded-Prefix`; cookies and links are scoped to a sub‑path (e.g., `/mybooks`).
 - iOS and password‑manager friendly login form (LastPass, etc.).
 
-## Quick Start (Docker Compose)
+## Quick Start (Go)
 
-1) Create env file and set users + volume path:
-
-```
-cp .env.bookbeam.example .env.bookbeam
-# edit .env.bookbeam and set BOOKBEAM_USERS and BOOKBEAM_DATA
-
-services:
-  bookbeam:
-    build: .
-    command: ["-addr", ":8180", "-data", "/data"]
-    ports:
-      - "8180:8180"
-    env_file:
-      - .env.bookbeam
-    volumes:
-      - type: bind
-        source: ${BOOKBEAM_DATA}  # set in .env.bookbeam
-B        target: /data
-```
-
-2) Build and run:
+Run the server directly with Go (no Docker required):
 
 ```
-docker compose up -d --build
+# From repo root
+go run ./server -addr :8080 -data /path/to/audiobooks -u user:password -u foo:pass456
 ```
 
-3) Open http://localhost:8180 and log in.
+Or build a binary:
 
-## Alternate Run (Docker CLI)
+```
+cd server
+go build -o bookbeam
+./bookbeam -addr :8080 -data /path/to/audiobooks -u user:password
+```
+
+Environment options:
+- `BOOKBEAM_USERS` (comma/space/semicolon‑separated `user:pass` pairs)
+- `COOKIE_SECURE=1` when served via HTTPS to mark the cookie Secure
+
+## Run With Docker (optional)
+
+Docker and docker‑compose files are provided purely as a convenience; Docker is not part of the engine.
+
+### Docker CLI
 
 ```
 docker build -t bookbeam .
@@ -59,28 +53,45 @@ docker run -p 8180:8180 \
   -addr :8180
 ```
 
+### Docker Compose
+
+1) Copy and edit the env file:
+
+```
+cp .env.bookbeam.example .env.bookbeam
+# edit .env.bookbeam and set BOOKBEAM_USERS and BOOKBEAM_DATA
+```
+
+2) Build and run using the provided `docker-compose.yml`:
+
+```
+docker compose up -d --build
+```
+
+3) Open http://localhost:8180 and log in.
+
 ## Data Directory Contract (`/data`)
 
 - Audio library: your folders/files. The server scans these.
-- `/data/audiobooks.json`: cached tree written/used by the server.
+- `/data/audiobooks.json`: cached tree written by the server (rebuilt on startup; refreshed hourly if the library changes).
 - `/data/state/<username>.json`: per‑user state files.
 - `/data/session_secret`: HMAC secret used to sign cookies (created on first run).
 
-Grant the container write access so it can create/update these files.
+Ensure the process has write access so it can create/update these files.
 
 ## Login & Sessions
 
-- Provide users with repeated `-u user:pass` flags.
+- Provide users with repeated `-u user:pass` flags or via `BOOKBEAM_USERS`.
 - Cookies last ~10 years and are scoped to the app path (root or sub‑path via `X-Forwarded-Prefix`).
 - Set `COOKIE_SECURE=1` when serving via HTTPS so cookies are Secure.
 
 ## Player UI
 
-- If `/data/index.html` exists, it is served, with:
-  - A tiny Logout link injected at top‑right.
-  - State mirror injected to load/save state server‑side.
-  - Single‑owner coordinator injected to prevent concurrent playback.
-- If no `/data/index.html`, the bundled UI at `server/web/index.html` is served.
+- The bundled UI at `server/web/index.html` is always served.
+- The server injects at runtime:
+  - a tiny Logout link (top‑right),
+  - a state mirror to load/save state server‑side,
+  - and a single‑owner coordinator to prevent concurrent playback.
 
 ### State Sync details
 
@@ -99,6 +110,7 @@ Grant the container write access so it can create/update these files.
 - `-data`: data directory mount (default `/data`).
 - `-u user:pass`: add a login (repeatable).
 - `COOKIE_SECURE=1`: mark cookie as Secure (HTTPS only).
+ - `BOOKBEAM_USERS`: alternative to repeated `-u` flags.
 
 ## API (all routes require auth unless noted)
 
@@ -107,7 +119,7 @@ Grant the container write access so it can create/update these files.
 - `POST /logout`: clears cookie.
 - `GET /healthz` (no auth): basic health.
 - `GET /api/me`: `{username}`.
-- `GET /audiobooks.json`: on‑disk cached tree.
+- `GET /audiobooks.json`: cached tree (served from in‑memory cache; also written to `/data/audiobooks.json`).
 - `GET /api/books`: in‑memory cached tree.
 - `GET /api/state`: returns per‑user JSON state.
 - `POST /api/state`: stores arbitrary JSON as user state.
@@ -124,17 +136,17 @@ Grant the container write access so it can create/update these files.
 - Session not restored across browsers: cookies are per host/path. Use the same domain and sub‑path; confirm `ab_session` cookie exists and that `/data/session_secret` persists across restarts.
 - Both tabs play: ensure your reverse proxy does not buffer Server‑Sent Events (SSE); heartbeat fallback pauses within 5 seconds.
 - State not saving: only the owner tab syncs. Hit Play in the page you want to control state.
-- Library not updating: hourly reindex compares a signature; to force rebuild, delete `/data/audiobooks.json` or restart the server.
+- Library not updating: hourly reindex compares a signature; to force rebuild, restart the server (it always rebuilds on startup).
 - Files not visible: confirm your host path is correctly mounted to `/data` and the container has read/write permissions.
 
 ## Project Files
 
 - `server/main.go` — Go server (auth, API, indexing, streaming, path‑prefix support).
-- `server/web/index.html` — bundled UI (used if `/data/index.html` missing).
+- `server/web/index.html` — bundled UI.
 - `server/web/login.html` — login form (LastPass/iOS friendly).
 - `server/web/static/mirror.js` — mirrors localStorage ⇄ server state (owner‑gated).
 - `server/web/static/solo.js` — single‑owner playback coordinator.
-- `Dockerfile`, `docker-compose.yml` — containerization.
+- `Dockerfile`, `docker-compose.yml` — optional containerization helpers.
 - `AGENTS.md` — project context/architecture notes.
 
 ---
