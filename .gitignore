@@ -4,6 +4,6 @@
 .idea/
 .vscode/
 *~
-server/bookbeam-server
-server/audiobook-server
-server/server
+/server/bookbeam
+/server/server
+/bookbeam
